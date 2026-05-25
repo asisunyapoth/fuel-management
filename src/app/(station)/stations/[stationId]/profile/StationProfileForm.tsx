@@ -166,8 +166,8 @@ export function StationProfileForm({ stationId, initialData }: StationProfileFor
           name,
           address,
           phone,
-          lat: lat != null ? String(lat) : null,
-          lon: lon != null ? String(lon) : null,
+          lat,   // number | null — server schema expects a number, not a string
+          lon,
         }),
       });
       const data = await res.json();

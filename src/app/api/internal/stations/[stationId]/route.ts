@@ -19,8 +19,8 @@ const patchSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   address: z.string().max(500).optional(),
   phone: z.string().max(20).optional(),
-  lat: z.number().min(-90).max(90).optional(),
-  lon: z.number().min(-180).max(180).optional(),
+  lat: z.number().min(-90).max(90).nullable().optional(),
+  lon: z.number().min(-180).max(180).nullable().optional(),
 });
 
 export const PATCH = secureRoute(async (ctx, req) => {
@@ -41,8 +41,8 @@ export const PATCH = secureRoute(async (ctx, req) => {
     .update(stations)
     .set({
       ...rest,
-      ...(lat !== undefined ? { lat: String(lat) } : {}),
-      ...(lon !== undefined ? { lon: String(lon) } : {}),
+      ...(lat !== undefined ? { lat: lat !== null ? String(lat) : null } : {}),
+      ...(lon !== undefined ? { lon: lon !== null ? String(lon) : null } : {}),
     })
     .where(eq(stations.stationId, stationId));
 
