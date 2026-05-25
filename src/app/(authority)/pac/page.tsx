@@ -42,6 +42,14 @@ function toThaiMonthLabel(startDate: string): string {
   return `${THAI_MONTHS_SHORT[m - 1]} ${(y + 543).toString().slice(-2)}`;
 }
 
+function fmtTaxStat(v: number): string {
+  if (v === 0) return "—";
+  if (v >= 1_000_000_000) return `฿${(v / 1_000_000_000).toFixed(1)}B`;
+  if (v >= 1_000_000)     return `฿${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000)         return `฿${(v / 1_000).toFixed(0)}k`;
+  return `฿${v.toFixed(0)}`;
+}
+
 /* ── Status helpers ────────────────────────────────────────────── */
 
 type ReportStatus = "submitted" | "draft" | "flagged" | "missing";
@@ -306,6 +314,13 @@ export default async function PacDashboardPage({
   // ── Chart data ────────────────────────────────────────────────
   let trendData: TrendPoint[] = [];
   let fuelMixData: FuelMixPoint[] = [];
+  let taxBreakdown: {
+    fuelTypeId: string;
+    nameTh: string;
+    volumeSold: number;
+    avgRate: number;
+    totalTax: number;
+  }[] = [];
 
   if (stationIds.length > 0) {
     // Last 12 periods in chronological order (oldest → newest)
@@ -314,7 +329,7 @@ export default async function PacDashboardPage({
 
     if (periodIds.length > 0) {
       // Volume sold per period (from form_014_lines)
-      const [volumeRows, stockRows, submissionRows] = await Promise.all([
+      const [volumeRows, stockRows, submissionRows, taxRows] = await Promise.all([
         db
           .select({
             periodId: reports.periodId,
@@ -371,11 +386,30 @@ export default async function PacDashboardPage({
             )
           )
           .groupBy(reports.periodId),
+
+        // Tax collected per period (from form_014_lines)
+        db
+          .select({
+            periodId: reports.periodId,
+            totalTax: sum(form014Lines.taxAmount),
+          })
+          .from(form014Lines)
+          .innerJoin(reports, eq(form014Lines.reportId, reports.reportId))
+          .where(
+            and(
+              eq(reports.status, "submitted"),
+              inArray(reports.stationId, stationIds),
+              isNotNull(reports.periodId),
+              inArray(reports.periodId, periodIds),
+            )
+          )
+          .groupBy(reports.periodId),
       ]);
 
-      const volumeByPeriod   = new Map(volumeRows.map((r) => [r.periodId, parseFloat(r.totalVolume ?? "0")]));
-      const stockByPeriod    = new Map(stockRows.map((r) => [r.periodId, parseFloat(r.closingStock ?? "0")]));
+      const volumeByPeriod    = new Map(volumeRows.map((r) => [r.periodId, parseFloat(r.totalVolume ?? "0")]));
+      const stockByPeriod     = new Map(stockRows.map((r) => [r.periodId, parseFloat(r.closingStock ?? "0")]));
       const submittedByPeriod = new Map(submissionRows.map((r) => [r.periodId, r.submittedCount ?? 0]));
+      const taxByPeriod       = new Map(taxRows.map((r) => [r.periodId, parseFloat(r.totalTax ?? "0")]));
 
       trendData = last12.map((p) => {
         const cnt = submittedByPeriod.get(p.periodId) ?? 0;
@@ -387,6 +421,7 @@ export default async function PacDashboardPage({
           submittedCount: cnt,
           totalStations:  tot,
           compliancePct:  tot > 0 ? Math.round((cnt / tot) * 100) : 0,
+          taxCollected:   taxByPeriod.get(p.periodId) ?? 0,
         };
       });
     }
@@ -417,8 +452,40 @@ export default async function PacDashboardPage({
         nameTh:     r.nameTh,
         volume:     parseFloat(r.totalVolume ?? "0"),
       }));
+
+      // Tax breakdown by fuel type for current period
+      const taxRows2 = await db
+        .select({
+          fuelTypeId: form014Lines.fuelTypeId,
+          nameTh:     fuelTypes.nameTh,
+          volumeSold: sum(form014Lines.volumeSoldLiters),
+          avgRate:    sql<string>`AVG(${form014Lines.taxRatePerLiter})`,
+          totalTax:   sum(form014Lines.taxAmount),
+        })
+        .from(form014Lines)
+        .innerJoin(reports,   eq(form014Lines.reportId,   reports.reportId))
+        .innerJoin(fuelTypes, eq(form014Lines.fuelTypeId, fuelTypes.fuelTypeId))
+        .where(
+          and(
+            eq(reports.status, "submitted"),
+            inArray(reports.stationId, stationIds),
+            eq(reports.periodId, period.periodId),
+          )
+        )
+        .groupBy(form014Lines.fuelTypeId, fuelTypes.nameTh)
+        .orderBy(desc(sum(form014Lines.taxAmount)));
+
+      taxBreakdown = taxRows2.map((r) => ({
+        fuelTypeId: r.fuelTypeId,
+        nameTh:     r.nameTh,
+        volumeSold: parseFloat(r.volumeSold ?? "0"),
+        avgRate:    parseFloat(r.avgRate    ?? "0"),
+        totalTax:   parseFloat(r.totalTax  ?? "0"),
+      }));
     }
   }
+
+  const totalTaxThisPeriod = taxBreakdown.reduce((acc, r) => acc + r.totalTax, 0);
 
   const currentPeriodLabel = period ? toThaiMonthLabel(period.startDate) : "—";
 
@@ -482,6 +549,12 @@ export default async function PacDashboardPage({
               label="ยังไม่ส่ง"
               value={missing}
               accent={missing > 0 ? "var(--foreground-negative-default)" : undefined}
+            />
+            <StatCard
+              label="ภาษีที่จัดเก็บ"
+              value={fmtTaxStat(totalTaxThisPeriod)}
+              sub={totalTaxThisPeriod > 0 ? currentPeriodLabel : undefined}
+              accent={totalTaxThisPeriod > 0 ? "#d97706" : undefined}
             />
           </div>
         </div>
@@ -600,6 +673,126 @@ export default async function PacDashboardPage({
         fuelMix={fuelMixData}
         currentPeriodLabel={currentPeriodLabel}
       />
+
+      {/* ── Tax breakdown table ── */}
+      {taxBreakdown.length > 0 && (
+        <div
+          className="rounded-2xl overflow-hidden overflow-x-auto mb-6"
+          style={{
+            background: "var(--canvas-white)",
+            border: "1px solid var(--stroke-neutral-lighter)",
+          }}
+        >
+          {/* Header */}
+          <div
+            className="px-4 py-3 flex items-center gap-2"
+            style={{ borderBottom: "1px solid var(--stroke-neutral-default)" }}
+          >
+            <span
+              className="flex items-center justify-center w-6 h-6 rounded-md shrink-0"
+              style={{ background: "#fef3c7" }}
+            >
+              <TrendingUp size={13} style={{ color: "#d97706" }} />
+            </span>
+            <p className="text-sm font-semibold" style={{ color: "var(--foreground-neutral-default)" }}>
+              ภาษีน้ำมันจำแนกตามประเภท · {currentPeriodLabel}
+            </p>
+            <span
+              className="ml-auto text-xs font-semibold tabular-nums"
+              style={{ color: "#d97706" }}
+            >
+              รวม {totalTaxThisPeriod.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท
+            </span>
+          </div>
+
+          <table className="w-full border-collapse text-sm min-w-[600px]">
+            <thead>
+              <tr>
+                {(["ชนิดน้ำมัน", "ปริมาณจำหน่าย (ล.)", "อัตราภาษี (บ./ล.)", "ภาษีที่จัดเก็บ (บาท)", "สัดส่วน"] as const).map((h, i) => (
+                  <th
+                    key={i}
+                    className={`px-4 py-3 text-xs font-semibold whitespace-nowrap ${i >= 1 ? "text-right" : "text-left"}`}
+                    style={{
+                      color: "var(--foreground-neutral-lighter)",
+                      borderBottom: "1px solid var(--stroke-neutral-default)",
+                      background: "var(--neutral-98)",
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {taxBreakdown.map((row) => {
+                const pct = totalTaxThisPeriod > 0 ? (row.totalTax / totalTaxThisPeriod) * 100 : 0;
+                return (
+                  <tr key={row.fuelTypeId} className="hover:bg-[var(--neutral-98)] transition-colors">
+                    <td
+                      className="px-4 py-3"
+                      style={{ borderBottom: "1px solid var(--stroke-neutral-lightest)" }}
+                    >
+                      <span className="text-sm font-medium" style={{ color: "var(--foreground-neutral-default)" }}>
+                        {row.nameTh}
+                      </span>
+                    </td>
+                    <td
+                      className="px-4 py-3 text-right tabular-nums"
+                      style={{ borderBottom: "1px solid var(--stroke-neutral-lightest)", color: "var(--foreground-neutral-lighter)" }}
+                    >
+                      {row.volumeSold.toLocaleString("th-TH", { maximumFractionDigits: 0 })}
+                    </td>
+                    <td
+                      className="px-4 py-3 text-right tabular-nums"
+                      style={{ borderBottom: "1px solid var(--stroke-neutral-lightest)", color: "var(--foreground-neutral-lighter)" }}
+                    >
+                      {row.avgRate.toLocaleString("th-TH", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                    </td>
+                    <td
+                      className="px-4 py-3 text-right tabular-nums font-medium"
+                      style={{ borderBottom: "1px solid var(--stroke-neutral-lightest)", color: "#d97706" }}
+                    >
+                      {row.totalTax.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td
+                      className="px-4 py-3"
+                      style={{ borderBottom: "1px solid var(--stroke-neutral-lightest)" }}
+                    >
+                      <div className="flex items-center gap-2 justify-end">
+                        <div
+                          className="h-2 rounded-full overflow-hidden"
+                          style={{ width: 64, background: "var(--neutral-92)" }}
+                        >
+                          <div
+                            className="h-full rounded-full"
+                            style={{ width: `${Math.min(pct, 100)}%`, background: "#f59e0b" }}
+                          />
+                        </div>
+                        <span className="text-xs tabular-nums w-10 text-right" style={{ color: "var(--foreground-neutral-lighter)" }}>
+                          {pct.toFixed(1)}%
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {/* Table footer */}
+          <div
+            className="px-4 py-2.5 flex items-center justify-between"
+            style={{ borderTop: "1px solid var(--stroke-neutral-default)", background: "var(--neutral-98)" }}
+          >
+            <span className="text-xs" style={{ color: "var(--foreground-neutral-lighter)" }}>
+              {taxBreakdown.length} ประเภทน้ำมัน · เฉพาะสถานีที่ส่งรายงานแล้ว
+            </span>
+            <span className="text-xs font-semibold tabular-nums" style={{ color: "#d97706" }}>
+              ฿{totalTaxThisPeriod.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ── Period selector + controls ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">

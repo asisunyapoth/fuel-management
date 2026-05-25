@@ -24,6 +24,7 @@ export type TrendPoint = {
   submittedCount: number;
   totalStations: number;
   compliancePct: number; // 0-100
+  taxCollected: number;  // total tax in THB
 };
 
 export type FuelMixPoint = {
@@ -66,6 +67,17 @@ function fmtL(v: number) {
 
 function fmtLFull(v: number) {
   return `${v.toLocaleString("th-TH")} ล.`;
+}
+
+function fmtBaht(v: number) {
+  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}B`;
+  if (v >= 1_000_000)     return `${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000)         return `${(v / 1_000).toFixed(0)}k`;
+  return v.toFixed(0);
+}
+
+function fmtBahtFull(v: number) {
+  return `฿${v.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /* ── Tooltip helpers ─────────────────────────────────────────────── */
@@ -114,6 +126,18 @@ function FuelTooltip({ active, payload, label }: any) {
       <p style={{ fontWeight: 600, marginBottom: 4 }}>{label}</p>
       <p style={{ color: payload[0]?.fill }}>
         {fmtLFull(payload[0]?.value ?? 0)}
+      </p>
+    </div>
+  );
+}
+
+function TaxTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={CARD_STYLE}>
+      <p style={{ fontWeight: 600, marginBottom: 4 }}>{label}</p>
+      <p style={{ color: "#d97706" }}>
+        ภาษีที่จัดเก็บ: {fmtBahtFull(payload[0]?.value ?? 0)}
       </p>
     </div>
   );
@@ -361,6 +385,41 @@ export function PacCharts({ trendData, fuelMix, currentPeriodLabel }: PacChartsP
           </ChartCard>
         </div>
       </div>
+
+      {/* ── Row 3: Tax collected per period ── */}
+      {trendData.some((d) => d.taxCollected > 0) && (
+        <ChartCard
+          title="ภาษีน้ำมันที่จัดเก็บได้ (บาท)"
+          subtitle="รวมทุกสถานีในจังหวัดที่ส่งรายงานแล้ว"
+        >
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={trendData} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+              <defs>
+                <linearGradient id="gradTax" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#d97706" stopOpacity={0.9} />
+                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.7} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 11, fill: "#9ca3af" }}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                tickFormatter={fmtBaht}
+                tick={{ fontSize: 11, fill: "#9ca3af" }}
+                tickLine={false}
+                axisLine={false}
+                width={52}
+              />
+              <Tooltip content={<TaxTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
+              <Bar dataKey="taxCollected" name="ภาษีที่จัดเก็บ" fill="url(#gradTax)" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      )}
     </div>
   );
 }
