@@ -1,0 +1,10 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Clerk Edge Middleware (proxy.ts) + Next.js App Router
+# are fully supported by Netlify's Essential Next.js plugin (auto-installed).
+# No [[plugins]] entry needed — Netlify detects Next.js automatically.
