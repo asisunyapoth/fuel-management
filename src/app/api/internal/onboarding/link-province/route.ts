@@ -74,15 +74,25 @@ export const POST = secureRoute(async (ctx, req) => {
     provinceCode,
   });
 
-  // Set pac_officer role and province_code in Clerk publicMetadata
+  // Add pac_officer to the user's roles array in Clerk publicMetadata.
+  // Supports multi-role users — merges with any existing roles rather than overwriting.
   const clerk = await clerkClient();
   const user = await clerk.users.getUser(ctx.userId);
   const meta = (user.publicMetadata ?? {}) as Record<string, unknown>;
 
+  // Normalise: read existing roles from either the new array or the legacy single string
+  const existingRoles: string[] = Array.isArray(meta.roles)
+    ? (meta.roles as string[])
+    : meta.role
+      ? [meta.role as string]
+      : [];
+  const updatedRoles = [...new Set([...existingRoles, "pac_officer"])];
+
   await clerk.users.updateUserMetadata(ctx.userId, {
     publicMetadata: {
       ...meta,
-      role: "pac_officer",
+      roles: updatedRoles,
+      role: undefined,          // clear legacy single-role field
       province_code: provinceCode,
     },
   });

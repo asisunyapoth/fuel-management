@@ -12,9 +12,15 @@ const NAV_ITEMS = [
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const { sessionClaims } = await auth();
-  const role = (sessionClaims?.metadata as Record<string, unknown> | undefined)?.role;
+  const meta = (sessionClaims?.metadata ?? {}) as Record<string, unknown>;
+  // Support both legacy single `role` string and new `roles` array
+  const roles: string[] = Array.isArray(meta.roles)
+    ? (meta.roles as string[])
+    : meta.role
+      ? [meta.role as string]
+      : [];
 
-  if (role !== "system_admin") {
+  if (!roles.includes("system_admin")) {
     redirect("/dashboard");
   }
 
