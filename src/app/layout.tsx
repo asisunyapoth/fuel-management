@@ -21,7 +21,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider afterSignOutUrl="/sign-in">
+    <ClerkProvider
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+      signInFallbackRedirectUrl="/dashboard"
+      signUpFallbackRedirectUrl="/onboarding"
+      afterSignOutUrl="/sign-in"
+    >
       <html lang="th" className={anuphan.variable}>
         <body>{children}</body>
       </html>
