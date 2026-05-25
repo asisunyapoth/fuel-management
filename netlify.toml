@@ -4,6 +4,10 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  # Google Maps JS API key — browser-only, intentionally public.
+  # Restrict this key by HTTP referrer in Google Cloud Console so it
+  # only works from rfdrs-fuel-management.netlify.app (and any custom domain).
+  NEXT_PUBLIC_GOOGLE_MAPS_API_KEY = "AIzaSyChUqk2FLmcdktJFKo-2z9yjAd1LHVIVug"
 
 # Clerk Edge Middleware (proxy.ts) + Next.js App Router
 # are fully supported by Netlify's Essential Next.js plugin (auto-installed).
