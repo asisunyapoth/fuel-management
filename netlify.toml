@@ -11,6 +11,9 @@
   # Restrict this key by HTTP referrer in Google Cloud Console so it
   # only works from rfdrs-fuel-management.netlify.app (and any custom domain).
   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY = "AIzaSyChUqk2FLmcdktJFKo-2z9yjAd1LHVIVug"
+  # Fill-in test data button on the report form.
+  # Uncomment (or set to "true" in Netlify dashboard) to enable in production.
+  # NEXT_PUBLIC_ENABLE_TEST_DATA = "true"
 
 # Clerk Edge Middleware (proxy.ts) + Next.js App Router
 # are fully supported by Netlify's Essential Next.js plugin (auto-installed).

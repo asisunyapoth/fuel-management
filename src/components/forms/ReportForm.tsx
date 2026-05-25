@@ -264,11 +264,11 @@ export function ReportForm({
           {/* Desktop action buttons (hidden on mobile — sticky bar handles mobile) */}
           {!isReadOnly && (
             <div className="hidden sm:flex items-center gap-2 shrink-0 pt-0.5">
-              {/* Dev-only test data button */}
-              {process.env.NODE_ENV !== "production" && (
+              {/* Test data button — shown when NEXT_PUBLIC_ENABLE_TEST_DATA=true */}
+              {process.env.NEXT_PUBLIC_ENABLE_TEST_DATA === "true" && (
                 <button
                   onClick={handleFillTestData}
-                  title="กรอกข้อมูลทดสอบ (dev only)"
+                  title="กรอกข้อมูลทดสอบ"
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium"
                   style={{
                     background: "var(--neutral-96)",
@@ -461,6 +461,22 @@ export function ReportForm({
             {saveStatus === "saved"  && <span style={{ color: "var(--foreground-positive-default)" }}><CheckCircle2 size={14} className="inline mr-1" />บันทึกแล้ว</span>}
             {saveStatus === "error"  && <span style={{ color: "var(--foreground-negative-default)" }}><AlertCircle size={14} className="inline mr-1" />บันทึกไม่สำเร็จ</span>}
           </span>
+
+          {/* Test data button — mobile */}
+          {process.env.NEXT_PUBLIC_ENABLE_TEST_DATA === "true" && (
+            <button
+              onClick={handleFillTestData}
+              title="กรอกข้อมูลทดสอบ"
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium shrink-0"
+              style={{
+                background: "var(--neutral-96)",
+                color: "var(--foreground-neutral-lightest)",
+                border: "1px dashed var(--stroke-neutral-lighter)",
+              }}
+            >
+              <FlaskConical size={15} />
+            </button>
+          )}
 
           <button
             onClick={handleSave}
