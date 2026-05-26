@@ -1,4 +1,4 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
 import {
@@ -131,14 +131,11 @@ function StatusBadge({ status }: { status: ReportStatus }) {
 /* ── Page ─────────────────────────────────────────────────────── */
 
 export default async function DashboardPage() {
-  const { userId } = await auth();
+  const session = await auth();
+  const userId = session?.user?.id;
   if (!userId) redirect("/sign-in");
 
-  const user = await currentUser();
-  const displayName =
-    user?.firstName ??
-    user?.emailAddresses[0]?.emailAddress ??
-    "ผู้ใช้งาน";
+  const displayName = session?.user?.name ?? session?.user?.email ?? "ผู้ใช้งาน";
 
   // ── 1. Get linked stations ────────────────────────────────────
   const linkedStations = await db
@@ -154,7 +151,7 @@ export default async function DashboardPage() {
     .from(userStationLinks)
     .innerJoin(stations, eq(userStationLinks.stationId, stations.stationId))
     .innerJoin(dealerLicenses, eq(stations.dealerLicenseNo, dealerLicenses.licenseNo))
-    .where(eq(userStationLinks.clerkUserId, userId))
+    .where(eq(userStationLinks.userId, userId))
     .orderBy(stations.name);
 
   const today = new Date().toISOString().split("T")[0];

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { eq, and, isNull, gt } from "drizzle-orm";
 import bcrypt from "bcryptjs";
-import { clerkClient } from "@clerk/nextjs/server";
 import { db } from "@/db";
-import { activationCodes, provinces, userProvinceLinks } from "@/db/schema";
+import { activationCodes, provinces, userProvinceLinks, userRoles } from "@/db/schema";
 import { secureRoute } from "@/lib/auth/secureRoute";
 import { linkProvinceSchema } from "@/lib/validation/onboarding";
 
@@ -24,7 +23,7 @@ export const POST = secureRoute(async (ctx, req) => {
   const [existingLink] = await db
     .select()
     .from(userProvinceLinks)
-    .where(eq(userProvinceLinks.clerkUserId, ctx.userId));
+    .where(eq(userProvinceLinks.userId, ctx.userId));
 
   if (existingLink) {
     return NextResponse.json(
@@ -70,32 +69,15 @@ export const POST = secureRoute(async (ctx, req) => {
     .where(eq(activationCodes.id, matchingCode.id));
 
   await db.insert(userProvinceLinks).values({
-    clerkUserId: ctx.userId,
+    userId: ctx.userId,
     provinceCode,
   });
 
-  // Add pac_officer to the user's roles array in Clerk publicMetadata.
-  // Supports multi-role users — merges with any existing roles rather than overwriting.
-  const clerk = await clerkClient();
-  const user = await clerk.users.getUser(ctx.userId);
-  const meta = (user.publicMetadata ?? {}) as Record<string, unknown>;
-
-  // Normalise: read existing roles from either the new array or the legacy single string
-  const existingRoles: string[] = Array.isArray(meta.roles)
-    ? (meta.roles as string[])
-    : meta.role
-      ? [meta.role as string]
-      : [];
-  const updatedRoles = [...new Set([...existingRoles, "pac_officer"])];
-
-  await clerk.users.updateUserMetadata(ctx.userId, {
-    publicMetadata: {
-      ...meta,
-      roles: updatedRoles,
-      role: undefined,          // clear legacy single-role field
-      province_code: provinceCode,
-    },
-  });
+  // Grant pac_officer role in the user_roles DB table (idempotent via onConflictDoNothing)
+  await db
+    .insert(userRoles)
+    .values({ userId: ctx.userId, role: "pac_officer" })
+    .onConflictDoNothing();
 
   return NextResponse.json({
     success: true,

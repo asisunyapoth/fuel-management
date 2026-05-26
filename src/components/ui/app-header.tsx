@@ -1,9 +1,8 @@
-import { currentUser, auth } from "@clerk/nextjs/server";
-import { UserButton } from "@clerk/nextjs";
-import { Fuel, ArrowLeftRight } from "lucide-react";
+import { auth, signOut } from "@/auth";
+import { Fuel, ArrowLeftRight, LogOut, User } from "lucide-react";
 import Link from "next/link";
 import { db } from "@/db";
-import { userStationLinks, userProvinceLinks } from "@/db/schema";
+import { userStationLinks, userProvinceLinks, userProfiles } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 export type AppRole = "station" | "officer";
@@ -31,14 +30,24 @@ export async function AppHeader({
   subtitle,
   role,
 }: AppHeaderProps) {
-  const { userId } = await auth();
-  const user = await currentUser();
-  const displayName =
-    user?.firstName ??
-    user?.emailAddresses[0]?.emailAddress ??
-    "";
+  const session = await auth();
+  const userId = session?.user?.id ?? null;
 
-  // ── Check whether this user holds both roles ─────────────────────
+  // Load display name from user_profiles
+  let displayName = "";
+  if (userId) {
+    const [profile] = await db
+      .select({ givenName: userProfiles.givenName, familyName: userProfiles.familyName })
+      .from(userProfiles)
+      .where(eq(userProfiles.userId, userId))
+      .limit(1);
+    if (profile) {
+      displayName = [profile.givenName, profile.familyName].filter(Boolean).join(" ");
+    }
+    displayName ||= session?.user?.name ?? session?.user?.email ?? "";
+  }
+
+  // Check whether this user holds both roles
   let hasStationRole = false;
   let hasOfficerRole = false;
 
@@ -47,12 +56,12 @@ export async function AppHeader({
       db
         .select({ id: userStationLinks.id })
         .from(userStationLinks)
-        .where(eq(userStationLinks.clerkUserId, userId))
+        .where(eq(userStationLinks.userId, userId))
         .limit(1),
       db
         .select({ provinceCode: userProvinceLinks.provinceCode })
         .from(userProvinceLinks)
-        .where(eq(userProvinceLinks.clerkUserId, userId))
+        .where(eq(userProvinceLinks.userId, userId))
         .limit(1),
     ]);
     hasStationRole = stationLinks.length > 0;
@@ -139,14 +148,30 @@ export async function AppHeader({
           {/* User name */}
           {displayName && (
             <span
-              className="text-sm hidden md:block shrink-0"
+              className="text-sm hidden md:flex items-center gap-1.5 shrink-0"
               style={{ color: "var(--primary-90)" }}
             >
+              <User size={13} strokeWidth={1.75} />
               {displayName}
             </span>
           )}
 
-          <UserButton />
+          {/* Sign out */}
+          <form
+            action={async () => {
+              "use server";
+              await signOut({ redirectTo: "/sign-in" });
+            }}
+          >
+            <button
+              type="submit"
+              title="ออกจากระบบ"
+              className="flex items-center justify-center w-8 h-8 rounded-full transition-colors"
+              style={{ background: "rgba(255,255,255,0.12)", color: "white" }}
+            >
+              <LogOut size={15} strokeWidth={1.75} />
+            </button>
+          </form>
         </div>
       </div>
     </header>

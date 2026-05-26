@@ -1,7 +1,6 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, signOut, getUserRoles } from "@/auth";
 import { redirect } from "next/navigation";
-import { UserButton } from "@clerk/nextjs";
-import { Fuel, LayoutDashboard, Building2, Users, CalendarDays, Settings2 } from "lucide-react";
+import { LogOut, Fuel, LayoutDashboard, Building2, Users, CalendarDays, Settings2 } from "lucide-react";
 import Link from "next/link";
 
 const NAV_ITEMS = [
@@ -11,15 +10,10 @@ const NAV_ITEMS = [
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { sessionClaims } = await auth();
-  const meta = (sessionClaims?.metadata ?? {}) as Record<string, unknown>;
-  // Support both legacy single `role` string and new `roles` array
-  const roles: string[] = Array.isArray(meta.roles)
-    ? (meta.roles as string[])
-    : meta.role
-      ? [meta.role as string]
-      : [];
+  const session = await auth();
+  if (!session?.user?.id) redirect("/sign-in");
 
+  const roles = await getUserRoles(session.user.id);
   if (!roles.includes("system_admin")) {
     redirect("/dashboard");
   }
@@ -69,7 +63,23 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <LayoutDashboard size={12} />
               กลับหน้าหลัก
             </Link>
-            <UserButton />
+
+            {/* Sign out */}
+            <form
+              action={async () => {
+                "use server";
+                await signOut({ redirectTo: "/sign-in" });
+              }}
+            >
+              <button
+                type="submit"
+                title="ออกจากระบบ"
+                className="flex items-center justify-center w-8 h-8 rounded-full transition-colors"
+                style={{ background: "rgba(255,255,255,0.12)", color: "var(--neutral-60)" }}
+              >
+                <LogOut size={15} strokeWidth={1.75} />
+              </button>
+            </form>
           </div>
         </div>
       </header>

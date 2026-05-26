@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { db } from "@/db";
@@ -18,14 +18,15 @@ export default async function WarningLettersPage({
 }: {
   searchParams: Promise<{ periodId?: string; stationIds?: string }>;
 }) {
-  const { userId } = await auth();
+  const session = await auth();
+  const userId = session?.user?.id;
   if (!userId) redirect("/sign-in");
 
   // ── Province link ─────────────────────────────────────────────
   const [link] = await db
     .select({ provinceCode: userProvinceLinks.provinceCode })
     .from(userProvinceLinks)
-    .where(eq(userProvinceLinks.clerkUserId, userId))
+    .where(eq(userProvinceLinks.userId, userId))
     .limit(1);
 
   if (!link) redirect("/pac/onboarding");

@@ -31,8 +31,8 @@ export const campaigns = pgTable("campaigns", {
   // Message shown to station operators on the dashboard.
   notificationMessage: text("notification_message"),
 
-  // clerk_user_id of the ธพ./admin who created the campaign.
-  createdBy: varchar("created_by", { length: 128 }).notNull(),
+  // user_id (auth_users.id) of the ธพ./admin who created the campaign.
+  createdBy: text("created_by").notNull(),
 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 

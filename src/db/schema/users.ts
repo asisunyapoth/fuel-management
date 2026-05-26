@@ -1,42 +1,43 @@
-import { pgTable, varchar, serial, timestamp, unique, integer } from "drizzle-orm/pg-core";
+import { pgTable, varchar, serial, timestamp, unique, integer, text } from "drizzle-orm/pg-core";
 import { dealerLicenses } from "./dealers";
 import { provinces } from "./master";
 import { stations } from "./stations";
+import { authUsers } from "./auth";
 
-// Maps a Clerk user to one or more dealer licenses (used by Brand HQ / v1 API path).
+// Maps an Auth.js user to one or more dealer licenses (used by Brand HQ / v1 API path).
 export const userLicenseLinks = pgTable(
   "user_license_links",
   {
     id: serial("id").primaryKey(),
-    clerkUserId: varchar("clerk_user_id", { length: 128 }).notNull(),
+    userId: text("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
     licenseNo: varchar("license_no", { length: 30 })
       .notNull()
       .references(() => dealerLicenses.licenseNo),
     role: varchar("role", { length: 30 }).notNull().default("dealer_admin"),
     linkedAt: timestamp("linked_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique().on(t.clerkUserId, t.licenseNo)]
+  (t) => [unique().on(t.userId, t.licenseNo)]
 );
 
-// Maps a Clerk user (station manager) to one or more stations via OTP.
+// Maps an Auth.js user (station manager) to one or more stations via OTP.
 // This is the primary onboarding path for individual station managers.
 export const userStationLinks = pgTable(
   "user_station_links",
   {
     id: serial("id").primaryKey(),
-    clerkUserId: varchar("clerk_user_id", { length: 128 }).notNull(),
+    userId: text("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
     stationId: integer("station_id")
       .notNull()
       .references(() => stations.stationId),
     linkedAt: timestamp("linked_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique().on(t.clerkUserId, t.stationId)]
+  (t) => [unique().on(t.userId, t.stationId)]
 );
 
-// Maps a Clerk user to exactly one province (อบจ. officer onboarding).
+// Maps an Auth.js user to exactly one province (อบจ. officer onboarding).
 export const userProvinceLinks = pgTable("user_province_links", {
   id: serial("id").primaryKey(),
-  clerkUserId: varchar("clerk_user_id", { length: 128 }).notNull().unique(),
+  userId: text("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }).unique(),
   provinceCode: varchar("province_code", { length: 2 })
     .notNull()
     .references(() => provinces.provinceCode),

@@ -67,7 +67,7 @@ export const GET = secureRoute(async (ctx) => {
   const myLinks = await db
     .select({ stationId: userStationLinks.stationId })
     .from(userStationLinks)
-    .where(eq(userStationLinks.clerkUserId, ctx.userId));
+    .where(eq(userStationLinks.userId, ctx.userId));
 
   if (myLinks.length === 0) {
     return NextResponse.json({ campaigns: [] });

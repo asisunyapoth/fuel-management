@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { eq, and, desc, gte, inArray, isNotNull, sum, sql } from "drizzle-orm";
 import { db } from "@/db";
@@ -134,14 +134,15 @@ export default async function PacDashboardPage({
 }: {
   searchParams: Promise<{ periodId?: string; error?: string }>;
 }) {
-  const { userId } = await auth();
+  const session = await auth();
+  const userId = session?.user?.id;
   if (!userId) redirect("/sign-in");
 
   // ── Verify officer has province link ──────────────────────────
   const [link] = await db
     .select({ provinceCode: userProvinceLinks.provinceCode })
     .from(userProvinceLinks)
-    .where(eq(userProvinceLinks.clerkUserId, userId))
+    .where(eq(userProvinceLinks.userId, userId))
     .limit(1);
 
   if (!link) redirect("/pac/onboarding");

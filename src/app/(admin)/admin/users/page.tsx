@@ -1,7 +1,12 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { userStationLinks, userProvinceLinks, stations, provinces } from "@/db/schema";
-import { clerkClient } from "@clerk/nextjs/server";
+import {
+  userStationLinks,
+  userProvinceLinks,
+  userProfiles,
+  stations,
+  provinces,
+} from "@/db/schema";
 import { User, Building2, MapPin, Calendar } from "lucide-react";
 import Link from "next/link";
 
@@ -11,10 +16,10 @@ function fmt(d: Date | string | null) {
 }
 
 export default async function AdminUsersPage() {
-  const [stationLinks, provinceLinks] = await Promise.all([
+  const [stationLinks, provinceLinks, profiles] = await Promise.all([
     db
       .select({
-        clerkUserId: userStationLinks.clerkUserId,
+        userId: userStationLinks.userId,
         stationId: userStationLinks.stationId,
         stationName: stations.name,
         linkedAt: userStationLinks.linkedAt,
@@ -25,54 +30,54 @@ export default async function AdminUsersPage() {
 
     db
       .select({
-        clerkUserId: userProvinceLinks.clerkUserId,
+        userId: userProvinceLinks.userId,
         provinceCode: userProvinceLinks.provinceCode,
         provinceName: provinces.nameTh,
         linkedAt: userProvinceLinks.linkedAt,
       })
       .from(userProvinceLinks)
       .leftJoin(provinces, eq(userProvinceLinks.provinceCode, provinces.provinceCode)),
+
+    db
+      .select({
+        userId: userProfiles.userId,
+        givenName: userProfiles.givenName,
+        familyName: userProfiles.familyName,
+        email: userProfiles.email,
+      })
+      .from(userProfiles),
   ]);
 
-  // Unique user IDs
+  // Unique user IDs from links
   const userIds = [
     ...new Set([
-      ...stationLinks.map((r) => r.clerkUserId),
-      ...provinceLinks.map((r) => r.clerkUserId),
+      ...stationLinks.map((r) => r.userId),
+      ...provinceLinks.map((r) => r.userId),
     ]),
   ];
 
-  // Fetch Clerk user info
-  const client = await clerkClient();
-  const clerkMap = new Map<string, { email: string; name: string }>();
-  for (let i = 0; i < userIds.length; i += 100) {
-    const batch = userIds.slice(i, i + 100);
-    const results = await Promise.allSettled(batch.map((id) => client.users.getUser(id)));
-    for (const r of results) {
-      if (r.status === "fulfilled") {
-        const u = r.value;
-        clerkMap.set(u.id, {
-          email: u.emailAddresses[0]?.emailAddress ?? "",
-          name: [u.firstName, u.lastName].filter(Boolean).join(" "),
-        });
-      }
-    }
-  }
+  // Profile map from user_profiles
+  const profileMap = new Map(profiles.map((p) => [p.userId, p]));
 
   // Group by user
   const stationsByUser = new Map<string, typeof stationLinks>();
   for (const link of stationLinks) {
-    if (!stationsByUser.has(link.clerkUserId)) stationsByUser.set(link.clerkUserId, []);
-    stationsByUser.get(link.clerkUserId)!.push(link);
+    if (!stationsByUser.has(link.userId)) stationsByUser.set(link.userId, []);
+    stationsByUser.get(link.userId)!.push(link);
   }
-  const provinceByUser = new Map(provinceLinks.map((r) => [r.clerkUserId, r]));
+  const provinceByUser = new Map(provinceLinks.map((r) => [r.userId, r]));
 
-  const users = userIds.map((uid) => ({
-    clerkUserId: uid,
-    ...(clerkMap.get(uid) ?? { email: uid, name: "" }),
-    stations: stationsByUser.get(uid) ?? [],
-    province: provinceByUser.get(uid) ?? null,
-  }));
+  const users = userIds.map((uid) => {
+    const profile = profileMap.get(uid);
+    const name = [profile?.givenName, profile?.familyName].filter(Boolean).join(" ");
+    return {
+      userId: uid,
+      email: profile?.email ?? uid,
+      name,
+      stations: stationsByUser.get(uid) ?? [],
+      province: provinceByUser.get(uid) ?? null,
+    };
+  });
 
   return (
     <div className="flex flex-col gap-5">
@@ -98,7 +103,7 @@ export default async function AdminUsersPage() {
         <div className="flex flex-col gap-3">
           {users.map((user) => (
             <div
-              key={user.clerkUserId}
+              key={user.userId}
               className="rounded-2xl overflow-hidden"
               style={{ background: "var(--canvas-white)", border: "1px solid var(--stroke-neutral-lighter)" }}
             >
@@ -127,7 +132,7 @@ export default async function AdminUsersPage() {
                   className="text-xs font-mono px-2 py-0.5 rounded"
                   style={{ background: "var(--neutral-95)", color: "var(--foreground-neutral-lighter)" }}
                 >
-                  {user.clerkUserId.slice(0, 14)}…
+                  {user.userId.slice(0, 8)}…
                 </span>
               </div>
 

@@ -43,7 +43,7 @@ export default async function AdminStationDetailPage({ params }: PageProps) {
       .limit(1),
 
     db
-      .select({ clerkUserId: userStationLinks.clerkUserId, linkedAt: userStationLinks.linkedAt })
+      .select({ userId: userStationLinks.userId, linkedAt: userStationLinks.linkedAt })
       .from(userStationLinks)
       .where(eq(userStationLinks.stationId, stationId))
       .orderBy(userStationLinks.linkedAt),
@@ -210,7 +210,7 @@ export default async function AdminStationDetailPage({ params }: PageProps) {
             <ManagerList
               stationId={stationId}
               managers={managers.map((m) => ({
-                clerkUserId: m.clerkUserId,
+                userId: m.userId,
                 linkedAt: m.linkedAt ? new Date(m.linkedAt).toISOString() : "",
               }))}
             />

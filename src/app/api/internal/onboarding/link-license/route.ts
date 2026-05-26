@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { eq, and, isNull, gt } from "drizzle-orm";
 import bcrypt from "bcryptjs";
-import { clerkClient } from "@clerk/nextjs/server";
 import { db } from "@/db";
 import { activationCodes, dealerLicenses, userLicenseLinks } from "@/db/schema";
 import { secureRoute } from "@/lib/auth/secureRoute";
@@ -36,7 +35,7 @@ export const POST = secureRoute(async (ctx, req) => {
     .from(userLicenseLinks)
     .where(
       and(
-        eq(userLicenseLinks.clerkUserId, ctx.userId),
+        eq(userLicenseLinks.userId, ctx.userId),
         eq(userLicenseLinks.licenseNo, licenseNo)
       )
     );
@@ -70,29 +69,15 @@ export const POST = secureRoute(async (ctx, req) => {
 
   // Mark OTP used, then create the link.
   // neon-http doesn't support transactions; sequential writes are safe here
-  // because the bcrypt compare above already consumed the code's uniqueness.
   await db
     .update(activationCodes)
     .set({ usedAt: now })
     .where(eq(activationCodes.id, matchingCode.id));
 
   await db.insert(userLicenseLinks).values({
-    clerkUserId: ctx.userId,
+    userId: ctx.userId,
     licenseNo,
     role,
-  });
-
-  // Update Clerk publicMetadata to reflect the new license link
-  const clerk = await clerkClient();
-  const user = await clerk.users.getUser(ctx.userId);
-  const meta = (user.publicMetadata ?? {}) as Record<string, unknown>;
-  const existing = (meta.linked_licenses as string[]) ?? [];
-
-  await clerk.users.updateUserMetadata(ctx.userId, {
-    publicMetadata: {
-      ...meta,
-      linked_licenses: [...new Set([...existing, licenseNo])],
-    },
   });
 
   return NextResponse.json({ success: true, licenseNo, role });

@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Anuphan } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 
 const anuphan = Anuphan({
@@ -21,16 +20,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider
-      signInUrl="/sign-in"
-      signUpUrl="/sign-up"
-      signInFallbackRedirectUrl="/dashboard"
-      signUpFallbackRedirectUrl="/onboarding"
-      afterSignOutUrl="/sign-in"
-    >
-      <html lang="th" className={anuphan.variable}>
-        <body>{children}</body>
-      </html>
-    </ClerkProvider>
+    <html lang="th" className={anuphan.variable}>
+      <body>{children}</body>
+    </html>
   );
 }

@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { eq, and, lte, gte, isNull, or } from "drizzle-orm";
 import { db } from "@/db";
@@ -21,7 +21,8 @@ export default async function ReportPage({
 }: {
   params: Promise<{ reportId: string }>;
 }) {
-  const { userId } = await auth();
+  const session = await auth();
+  const userId = session?.user?.id;
   if (!userId) redirect("/sign-in");
 
   const { reportId: reportIdStr } = await params;
@@ -57,7 +58,7 @@ export default async function ReportPage({
     .leftJoin(campaigns, eq(reports.campaignId, campaigns.campaignId))
     .innerJoin(userStationLinks, eq(stations.stationId, userStationLinks.stationId))
     .where(
-      and(eq(reports.reportId, reportId), eq(userStationLinks.clerkUserId, userId))
+      and(eq(reports.reportId, reportId), eq(userStationLinks.userId, userId))
     )
     .limit(1);
 

@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { eq, and } from "drizzle-orm";
 import { db } from "@/db";
@@ -10,7 +10,8 @@ export default async function StationProfilePage({
 }: {
   params: Promise<{ stationId: string }>;
 }) {
-  const { userId } = await auth();
+  const session = await auth();
+  const userId = session?.user?.id;
   if (!userId) redirect("/sign-in");
 
   const { stationId: stationIdStr } = await params;
@@ -35,7 +36,7 @@ export default async function StationProfilePage({
     .where(
       and(
         eq(stations.stationId, stationId),
-        eq(userStationLinks.clerkUserId, userId)
+        eq(userStationLinks.userId, userId)
       )
     )
     .limit(1);

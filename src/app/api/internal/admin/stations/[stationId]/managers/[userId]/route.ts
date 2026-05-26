@@ -6,10 +6,10 @@ import { requireRole } from "@/lib/auth/secureRoute";
 
 export const DELETE = requireRole("system_admin", async (_ctx, req) => {
   const parts = new URL(req.url).pathname.split("/");
-  // .../stations/[stationId]/managers/[clerkUserId]
-  const clerkUserId = parts.at(-1) ?? "";
+  // .../stations/[stationId]/managers/[userId]
+  const targetUserId = parts.at(-1) ?? "";
   const stationId = parseInt(parts.at(-3) ?? "");
-  if (isNaN(stationId) || !clerkUserId) {
+  if (isNaN(stationId) || !targetUserId) {
     return NextResponse.json({ error: "Invalid parameters" }, { status: 400 });
   }
 
@@ -18,7 +18,7 @@ export const DELETE = requireRole("system_admin", async (_ctx, req) => {
     .where(
       and(
         eq(userStationLinks.stationId, stationId),
-        eq(userStationLinks.clerkUserId, clerkUserId)
+        eq(userStationLinks.userId, targetUserId)
       )
     );
 

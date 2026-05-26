@@ -36,7 +36,7 @@ export const POST = secureRoute(async (ctx, req) => {
   const [existing] = await db
     .select({ id: userStationLinks.id })
     .from(userStationLinks)
-    .where(and(eq(userStationLinks.clerkUserId, ctx.userId), eq(userStationLinks.stationId, stationId)))
+    .where(and(eq(userStationLinks.userId, ctx.userId), eq(userStationLinks.stationId, stationId)))
     .limit(1);
 
   if (existing) {
@@ -64,7 +64,7 @@ export const POST = secureRoute(async (ctx, req) => {
 
   // Mark OTP used + create link (sequential — neon-http has no transaction support)
   await db.update(activationCodes).set({ usedAt: now }).where(eq(activationCodes.id, match.id));
-  await db.insert(userStationLinks).values({ clerkUserId: ctx.userId, stationId });
+  await db.insert(userStationLinks).values({ userId: ctx.userId, stationId });
 
   return NextResponse.json({ success: true, stationId, stationName: station.name });
 });
@@ -79,7 +79,7 @@ export const DELETE = secureRoute(async (ctx, req) => {
 
   await db
     .delete(userStationLinks)
-    .where(and(eq(userStationLinks.clerkUserId, ctx.userId), eq(userStationLinks.stationId, stationId)));
+    .where(and(eq(userStationLinks.userId, ctx.userId), eq(userStationLinks.stationId, stationId)));
 
   return NextResponse.json({ success: true });
 });

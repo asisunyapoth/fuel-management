@@ -5,7 +5,7 @@ import { Trash2, Loader2, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface Manager {
-  clerkUserId: string;
+  userId: string;
   linkedAt: string;
 }
 
@@ -20,18 +20,18 @@ export function ManagerList({ stationId, managers: initial }: Props) {
   const [unlinking, setUnlinking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleUnlink(clerkUserId: string) {
-    if (!confirm(`ยืนยันการยกเลิกการเชื่อมโยงผู้ใช้ ${clerkUserId.slice(0, 12)}… ?`)) return;
+  async function handleUnlink(userId: string) {
+    if (!confirm(`ยืนยันการยกเลิกการเชื่อมโยงผู้ใช้ ${userId.slice(0, 12)}… ?`)) return;
 
-    setUnlinking(clerkUserId);
+    setUnlinking(userId);
     setError(null);
     try {
       const res = await fetch(
-        `/api/internal/admin/stations/${stationId}/managers/${clerkUserId}`,
+        `/api/internal/admin/stations/${stationId}/managers/${userId}`,
         { method: "DELETE" }
       );
       if (res.ok) {
-        setManagers((prev) => prev.filter((m) => m.clerkUserId !== clerkUserId));
+        setManagers((prev) => prev.filter((m) => m.userId !== userId));
         router.refresh();
       } else {
         const data = await res.json();
@@ -70,7 +70,7 @@ export function ManagerList({ stationId, managers: initial }: Props) {
       )}
       {managers.map((m) => (
         <div
-          key={m.clerkUserId}
+          key={m.userId}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
           style={{ background: "var(--neutral-97)", border: "1px solid var(--stroke-neutral-lightest)" }}
         >
@@ -83,7 +83,7 @@ export function ManagerList({ stationId, managers: initial }: Props) {
 
           <div className="flex-1 min-w-0">
             <p className="text-sm font-mono truncate" style={{ color: "var(--foreground-neutral-default)" }}>
-              {m.clerkUserId}
+              {m.userId}
             </p>
             <p className="text-xs mt-0.5" style={{ color: "var(--foreground-neutral-lighter)" }}>
               เชื่อมโยงเมื่อ {fmt(m.linkedAt)}
@@ -91,16 +91,16 @@ export function ManagerList({ stationId, managers: initial }: Props) {
           </div>
 
           <button
-            onClick={() => handleUnlink(m.clerkUserId)}
-            disabled={unlinking === m.clerkUserId}
+            onClick={() => handleUnlink(m.userId)}
+            disabled={unlinking === m.userId}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium shrink-0"
             style={{
               background: "var(--background-negative-light)",
               color: "var(--foreground-negative-default)",
-              cursor: unlinking === m.clerkUserId ? "wait" : "pointer",
+              cursor: unlinking === m.userId ? "wait" : "pointer",
             }}
           >
-            {unlinking === m.clerkUserId ? (
+            {unlinking === m.userId ? (
               <Loader2 size={12} className="animate-spin" />
             ) : (
               <Trash2 size={12} />

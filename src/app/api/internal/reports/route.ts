@@ -52,7 +52,7 @@ export const POST = secureRoute(async (ctx, req) => {
     .where(
       and(
         eq(stations.stationId, stationId),
-        eq(userStationLinks.clerkUserId, ctx.userId)
+        eq(userStationLinks.userId, ctx.userId)
       )
     )
     .limit(1);

@@ -1,21 +1,33 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { auth } from "@/auth";
+import { NextResponse } from "next/server";
 
-const isPublicRoute = createRouteMatcher([
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  "/open-data(.*)",
-  "/api/v1/master(.*)",
-]);
+const PUBLIC_PREFIXES = [
+  "/sign-in",
+  "/api/auth",      // Auth.js internal routes (callback, signout, etc.)
+  "/open-data",
+  "/api/v1/master",
+];
 
-export const proxy = clerkMiddleware(async (auth, req) => {
-  if (!isPublicRoute(req)) {
-    await auth.protect();
+function isPublic(pathname: string): boolean {
+  return PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
+// Auth.js middleware — wraps every request with session check
+export const proxy = auth((req) => {
+  const { pathname } = req.nextUrl;
+
+  if (isPublic(pathname)) return NextResponse.next();
+
+  if (!req.auth) {
+    const signInUrl = new URL("/sign-in", req.url);
+    signInUrl.searchParams.set("callbackUrl", req.url);
+    return NextResponse.redirect(signInUrl);
   }
+
+  return NextResponse.next();
 });
 
-// Next.js 16 proxy module loading: `adapterFn = middlewareModule.default || middlewareModule`
-// During Turbopack HMR the named `proxy` export can be transiently stale; having a default
-// export gives the runtime a second resolution path and avoids "adapterFn is not a function".
+// Next.js 16 proxy module loading: named + default export for Turbopack HMR stability
 export default proxy;
 
 export const config = {

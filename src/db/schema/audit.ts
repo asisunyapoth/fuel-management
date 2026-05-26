@@ -5,7 +5,7 @@ export const auditLog = pgTable("audit_log", {
   action: varchar("action", { length: 100 }).notNull(),
   entityType: varchar("entity_type", { length: 50 }).notNull(),
   entityId: varchar("entity_id", { length: 50 }).notNull(),
-  clerkUserId: varchar("clerk_user_id", { length: 128 }),
+  userId: text("user_id"),
   payloadHash: varchar("payload_hash", { length: 64 }),
   detail: text("detail"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

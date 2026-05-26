@@ -10,7 +10,7 @@ async function verifyOwnership(userId: string, stationId: number) {
     .select({ stationId: stations.stationId })
     .from(stations)
     .innerJoin(userStationLinks, eq(stations.stationId, userStationLinks.stationId))
-    .where(and(eq(stations.stationId, stationId), eq(userStationLinks.clerkUserId, userId)))
+    .where(and(eq(stations.stationId, stationId), eq(userStationLinks.userId, userId)))
     .limit(1);
   return !!row;
 }

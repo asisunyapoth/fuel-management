@@ -39,7 +39,7 @@ export const GET = secureRoute(async (ctx, req) => {
   const myLinks = await db
     .select({ stationId: userStationLinks.stationId })
     .from(userStationLinks)
-    .where(eq(userStationLinks.clerkUserId, ctx.userId));
+    .where(eq(userStationLinks.userId, ctx.userId));
 
   const myStationIds = myLinks.map((l) => l.stationId);
 

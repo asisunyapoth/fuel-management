@@ -1,14 +1,11 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, getUserRoles } from "@/auth";
 import { NextResponse } from "next/server";
 
 export type UserContext = {
   userId: string;
   /**
    * All roles assigned to this user (e.g. ["system_admin", "pac_officer"]).
-   * Use `ctx.roles.includes("some_role")` to check for a specific role.
-   *
-   * Backward-compatible: if the legacy single `role` string is present in
-   * publicMetadata (pre-migration accounts), it is normalised into this array.
+   * Loaded from the user_roles DB table on every protected request.
    */
   roles: string[];
   provinceCode: string | null;
@@ -17,36 +14,31 @@ export type UserContext = {
 
 type Handler = (ctx: UserContext, req: Request) => Promise<NextResponse>;
 
-/** Derive the roles array from Clerk publicMetadata, supporting both the legacy
- *  `role: "pac_officer"` (single string) and the new `roles: ["pac_officer"]` format. */
-function extractRoles(metadata: Record<string, unknown>): string[] {
-  const arr = metadata.roles as string[] | undefined;
-  if (Array.isArray(arr) && arr.length > 0) return arr;
-  const single = metadata.role as string | undefined;
-  if (single) return [single];
-  return [];
-}
-
 /**
- * HOF that wraps route handlers with Clerk auth.
- * Extracts userId strictly from the verified JWT — never trusts client payloads.
- * Business logic receives only the verified UserContext.
+ * HOF that wraps route handlers with Auth.js session verification.
+ * Extracts userId strictly from the server-side session — never trusts client payloads.
+ * Loads roles from the user_roles DB table on every request.
  */
 export function secureRoute(handler: Handler) {
   return async (req: Request): Promise<NextResponse> => {
-    const { userId, sessionClaims } = await auth();
+    const session = await auth();
 
-    if (!userId) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const metadata = (sessionClaims?.metadata ?? {}) as Record<string, unknown>;
+    const userId = session.user.id;
+    const roles = await getUserRoles(userId);
 
+    // province_code and linked_licenses come from user_profiles / user_province_links
+    // They are loaded lazily in route handlers that need them (via DB join).
+    // For backwards compatibility, expose provinceCode = null here; routes that
+    // need it should query user_province_links directly.
     const ctx: UserContext = {
       userId,
-      roles: extractRoles(metadata),
-      provinceCode: (metadata.province_code as string) ?? null,
-      linkedLicenses: (metadata.linked_licenses as string[]) ?? [],
+      roles,
+      provinceCode: null,
+      linkedLicenses: [],
     };
 
     return handler(ctx, req);
@@ -56,7 +48,6 @@ export function secureRoute(handler: Handler) {
 /**
  * Guard that additionally requires a specific role.
  * Returns 403 if the user does not hold that role.
- * Works with multi-role users — checks roles.includes(role).
  */
 export function requireRole(role: string, handler: Handler) {
   return secureRoute(async (ctx, req) => {
@@ -69,7 +60,7 @@ export function requireRole(role: string, handler: Handler) {
 
 /**
  * Guard for อบจ. officers — requires pac_officer role AND verifies
- * that the queried province matches the officer's linked province.
+ * that the queried province matches the officer's linked province (via DB).
  */
 export function requireProvinceAccess(
   getProvinceCode: (req: Request) => string | null,
@@ -80,8 +71,24 @@ export function requireProvinceAccess(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const requestedProvince = getProvinceCode(req);
-    if (requestedProvince && requestedProvince !== ctx.provinceCode) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (requestedProvince) {
+      // Verify this officer is actually linked to the requested province
+      const { db } = await import("@/db");
+      const { userProvinceLinks } = await import("@/db/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const [link] = await db
+        .select({ provinceCode: userProvinceLinks.provinceCode })
+        .from(userProvinceLinks)
+        .where(
+          and(
+            eq(userProvinceLinks.userId, ctx.userId),
+            eq(userProvinceLinks.provinceCode, requestedProvince)
+          )
+        )
+        .limit(1);
+      if (!link) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
     }
     return handler(ctx, req);
   });

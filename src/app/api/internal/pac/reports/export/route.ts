@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { db } from "@/db";
@@ -33,13 +33,14 @@ function colFill(hex: string): ExcelJS.Fill {
 
 export async function GET(req: NextRequest) {
   // ── Auth ────────────────────────────────────────────────────
-  const { userId } = await auth();
+  const session = await auth();
+  const userId = session?.user?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
   const [link] = await db
     .select({ provinceCode: userProvinceLinks.provinceCode })
     .from(userProvinceLinks)
-    .where(eq(userProvinceLinks.clerkUserId, userId))
+    .where(eq(userProvinceLinks.userId, userId))
     .limit(1);
 
   if (!link) return NextResponse.json({ error: "Province not linked" }, { status: 403 });

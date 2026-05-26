@@ -32,7 +32,7 @@ export const GET = requireRole("system_admin", async (_ctx, req) => {
 
     db
       .select({
-        clerkUserId: userStationLinks.clerkUserId,
+        userId: userStationLinks.userId,
         linkedAt: userStationLinks.linkedAt,
       })
       .from(userStationLinks)

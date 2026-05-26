@@ -41,7 +41,7 @@ export const POST = secureRoute(async (ctx, req) => {
     .leftJoin(campaigns, eq(reports.campaignId, campaigns.campaignId))
     .innerJoin(userStationLinks, eq(stations.stationId, userStationLinks.stationId))
     .where(
-      and(eq(reports.reportId, reportId), eq(userStationLinks.clerkUserId, ctx.userId))
+      and(eq(reports.reportId, reportId), eq(userStationLinks.userId, ctx.userId))
     )
     .limit(1);
 
