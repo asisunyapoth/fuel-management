@@ -9,7 +9,7 @@ import crypto from "crypto";
  *
  * Reference: https://digitalid-manual.egov.go.th/development-guide/consumer-secret-hash.html
  *
- * Example: hashConsumerSecret("CezAg7UPkad") → "fd85b47a0cb53651edad9494d587ac7f"
+ * Example: hashConsumerSecret("<your-secret>") returns the pre-hashed hex string.
  */
 export function hashConsumerSecret(secret: string, rounds = 7): string {
   let result = secret;
