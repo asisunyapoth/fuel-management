@@ -9,6 +9,7 @@ import {
   reportingPeriods,
   campaigns,
   campaignStations,
+  userProfiles,
 } from "@/db/schema";
 import { eq, and, lte, desc, inArray, gte } from "drizzle-orm";
 import Link from "next/link";
@@ -135,7 +136,27 @@ export default async function DashboardPage() {
   const userId = session?.user?.id;
   if (!userId) redirect("/sign-in");
 
-  const displayName = session?.user?.name ?? session?.user?.email ?? "ผู้ใช้งาน";
+  // Resolve display name from user_profiles (most authoritative).
+  // Fallback chain: given+family → preferredUsername → email → session.name (if not UUID) → generic
+  const [profile] = await db
+    .select({
+      givenName:         userProfiles.givenName,
+      familyName:        userProfiles.familyName,
+      preferredUsername: userProfiles.preferredUsername,
+      email:             userProfiles.email,
+    })
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, userId))
+    .limit(1);
+
+  const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+  const displayName =
+    [profile?.givenName, profile?.familyName].filter(Boolean).join(" ") ||
+    profile?.preferredUsername ||
+    profile?.email ||
+    session?.user?.email ||
+    (session?.user?.name && !isUuid(session.user.name) ? session.user.name : "") ||
+    "ผู้ใช้งาน";
 
   // ── 1. Get linked stations ────────────────────────────────────
   const linkedStations = await db

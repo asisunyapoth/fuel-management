@@ -33,18 +33,31 @@ export async function AppHeader({
   const session = await auth();
   const userId = session?.user?.id ?? null;
 
-  // Load display name from user_profiles
+  // Load display name from user_profiles with full fallback chain.
+  // Never surfaces a raw UUID (Auth.js sometimes stores DGA sub as name).
   let displayName = "";
   if (userId) {
     const [profile] = await db
-      .select({ givenName: userProfiles.givenName, familyName: userProfiles.familyName })
+      .select({
+        givenName:         userProfiles.givenName,
+        familyName:        userProfiles.familyName,
+        preferredUsername: userProfiles.preferredUsername,
+        email:             userProfiles.email,
+      })
       .from(userProfiles)
       .where(eq(userProfiles.userId, userId))
       .limit(1);
-    if (profile) {
-      displayName = [profile.givenName, profile.familyName].filter(Boolean).join(" ");
-    }
-    displayName ||= session?.user?.name ?? session?.user?.email ?? "";
+
+    const isUuid = (s: string) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
+    displayName =
+      [profile?.givenName, profile?.familyName].filter(Boolean).join(" ") ||
+      profile?.preferredUsername ||
+      profile?.email ||
+      session?.user?.email ||
+      (session?.user?.name && !isUuid(session.user.name) ? session.user.name : "") ||
+      "";
   }
 
   // Check whether this user holds both roles

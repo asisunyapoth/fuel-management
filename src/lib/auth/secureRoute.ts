@@ -4,6 +4,7 @@ import {
   validatePersonalToken,
   type PersonalTokenClaims,
 } from "@/lib/auth/validatePersonalToken";
+import { eq, and } from "drizzle-orm";
 
 export type UserContext = {
   userId: string;
@@ -158,9 +159,32 @@ export function requirePersonalToken(handler: TokenHandler) {
       );
     }
 
-    // ── 3. Resolve internal user (auth_users.id = OIDC sub) ───────────
-    // DGA's sub maps directly to our auth_users.id (set in profile() callback)
-    const userId = dgaClaims.sub;
+    // ── 3. Resolve internal user ID via auth_accounts ─────────────────
+    // Auth.js DrizzleAdapter generates its own UUID for auth_users.id and
+    // stores DGA's sub as auth_accounts.provider_account_id. We must join
+    // through auth_accounts to get the correct internal user ID.
+    const { db } = await import("@/db");
+    const { authAccounts } = await import("@/db/schema");
+    const [account] = await db
+      .select({ userId: authAccounts.userId })
+      .from(authAccounts)
+      .where(
+        and(
+          eq(authAccounts.provider, "dga-digital-id"),
+          eq(authAccounts.providerAccountId, dgaClaims.sub)
+        )
+      )
+      .limit(1);
+
+    if (!account) {
+      // DGA identity is valid but not linked to any account in our system
+      return NextResponse.json(
+        { error: "Unauthorized", detail: "DGA identity not linked to any account" },
+        { status: 401 }
+      );
+    }
+
+    const userId = account.userId;
 
     // ── 4. Load roles ──────────────────────────────────────────────────
     const roles = await getUserRoles(userId);
