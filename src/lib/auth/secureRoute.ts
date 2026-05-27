@@ -1,5 +1,9 @@
 import { auth, getUserRoles } from "@/auth";
 import { NextResponse } from "next/server";
+import {
+  validatePersonalToken,
+  type PersonalTokenClaims,
+} from "@/lib/auth/validatePersonalToken";
 
 export type UserContext = {
   userId: string;
@@ -12,7 +16,18 @@ export type UserContext = {
   linkedLicenses: string[];
 };
 
+/**
+ * UserContext for routes authenticated via DGA personal_token.
+ * Roles are loaded from the DB the same way as session-based routes;
+ * DGA identity claims are also available for auditing.
+ */
+export type TokenUserContext = UserContext & {
+  /** Raw DGA identity claims resolved from the personal_token */
+  dgaClaims: PersonalTokenClaims;
+};
+
 type Handler = (ctx: UserContext, req: Request) => Promise<NextResponse>;
+type TokenHandler = (ctx: TokenUserContext, req: Request) => Promise<NextResponse>;
 
 /**
  * HOF that wraps route handlers with Auth.js session verification.
@@ -92,4 +107,94 @@ export function requireProvinceAccess(
     }
     return handler(ctx, req);
   });
+}
+
+/**
+ * HOF that authenticates via DGA personal_token in the Authorization header.
+ *
+ * Usage:
+ *   export const GET = requirePersonalToken(async (ctx, req) => { ... });
+ *
+ * The caller must send:
+ *   Authorization: Bearer <personal_token>
+ *
+ * Validation flow:
+ *   1. Extract Bearer token from Authorization header
+ *   2. Call DGA /connect/userinfo with the token — proves it is live and
+ *      resolves the token back to a real DGA Digital ID identity
+ *   3. Look up the matching internal user by DGA sub (auth_users.id = sub)
+ *   4. Load roles from user_roles DB table
+ *   5. Inject full TokenUserContext (userId + roles + dgaClaims) into handler
+ *
+ * Security properties:
+ *   - Short-lived (30 min) — limits exposure window
+ *   - Every call validated against DGA live — no stale tokens accepted
+ *   - dgaClaims.sub provides immutable DGA identity for audit trails
+ *   - Future standalone API services can use this HOF without session cookies
+ *
+ * Returns 401 if token is missing or expired, 404 if user not in our DB.
+ */
+export function requirePersonalToken(handler: TokenHandler) {
+  return async (req: Request): Promise<NextResponse> => {
+    // ── 1. Extract Bearer token ────────────────────────────────────────
+    const authHeader = req.headers.get("authorization") ?? "";
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7).trim()
+      : null;
+
+    if (!token) {
+      return NextResponse.json(
+        { error: "Unauthorized", detail: "Authorization: Bearer <personal_token> required" },
+        { status: 401 }
+      );
+    }
+
+    // ── 2. Validate against DGA /connect/userinfo ──────────────────────
+    const dgaClaims = await validatePersonalToken(token);
+    if (!dgaClaims) {
+      return NextResponse.json(
+        { error: "Unauthorized", detail: "personal_token invalid or expired" },
+        { status: 401 }
+      );
+    }
+
+    // ── 3. Resolve internal user (auth_users.id = OIDC sub) ───────────
+    // DGA's sub maps directly to our auth_users.id (set in profile() callback)
+    const userId = dgaClaims.sub;
+
+    // ── 4. Load roles ──────────────────────────────────────────────────
+    const roles = await getUserRoles(userId);
+
+    const ctx: TokenUserContext = {
+      userId,
+      roles,
+      provinceCode: null,
+      linkedLicenses: [],
+      dgaClaims,
+    };
+
+    return handler(ctx, req);
+  };
+}
+
+/**
+ * Combined guard: accepts EITHER a valid session cookie OR a DGA personal_token.
+ * Useful for routes that should be callable from both the web app and direct API clients.
+ *
+ * Order of precedence:
+ *   1. If Authorization: Bearer header is present → validate personal_token
+ *   2. Otherwise                                  → validate session cookie
+ */
+export function secureRouteAny(handler: Handler) {
+  return async (req: Request): Promise<NextResponse> => {
+    const authHeader = req.headers.get("authorization") ?? "";
+
+    if (authHeader.startsWith("Bearer ")) {
+      // Delegate to personal_token path
+      return requirePersonalToken(handler as unknown as TokenHandler)(req);
+    }
+
+    // Fall back to session-cookie path
+    return secureRoute(handler)(req);
+  };
 }

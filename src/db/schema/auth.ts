@@ -5,8 +5,9 @@
  * DB column names (the string argument) are prefixed "auth_" to avoid conflicts.
  *
  * Also includes app-specific tables replacing Clerk publicMetadata:
- *   - user_roles    → replaces publicMetadata.roles
- *   - user_profiles → DGA identity claim cache
+ *   - user_roles          → replaces publicMetadata.roles
+ *   - user_profiles       → DGA identity claim cache (all OIDC scopes)
+ *   - user_personal_tokens → DGA personal_token (30-min TTL, for API auth)
  */
 
 import {
@@ -18,6 +19,7 @@ import {
   serial,
   varchar,
   real,
+  boolean,
   unique,
 } from "drizzle-orm/pg-core";
 
@@ -34,7 +36,6 @@ export const authUsers = pgTable("auth_users", {
 export const authAccounts = pgTable(
   "auth_accounts",
   {
-    // Drizzle field names must match what the adapter accesses
     userId:            text("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
     type:              text("type").notNull(),
     provider:          text("provider").notNull(),
@@ -87,18 +88,57 @@ export const userRoles = pgTable(
 // ── App-specific: DGA identity profile cache ────────────────────────────────
 
 /**
- * Cached DGA claims, upserted on every sign-in.
- * citizen_id_encrypted: AES-256 encrypted Thai National ID (PDPA).
- * province_code: set when the user completes อบจ. officer onboarding.
+ * Full DGA OIDC claim cache — upserted on every sign-in.
+ *
+ * Scope → claim mapping:
+ *   profile           → preferred_username
+ *   given_name        → given_name
+ *   family_name       → family_name
+ *   email             → email
+ *   phone_number      → phone_number
+ *   user_id           → user_id  (DGA's own user ID, distinct from OIDC sub)
+ *   citizen_id        → citizen_id  (stored encrypted — PDPA)
+ *   citizen_id_verified → citizen_id_verified
+ *   ial_level         → ial_level
+ *
+ * citizen_id_encrypted: AES-256 encrypted Thai National ID (encryption added in M3).
  */
 export const userProfiles = pgTable("user_profiles", {
-  userId:             text("user_id").primaryKey().references(() => authUsers.id, { onDelete: "cascade" }),
-  givenName:          varchar("given_name", { length: 100 }),
-  familyName:         varchar("family_name", { length: 100 }),
-  email:              varchar("email", { length: 255 }),
-  phoneNumber:        varchar("phone_number", { length: 20 }),
-  citizenIdEncrypted: text("citizen_id_encrypted"),
-  ialLevel:           real("ial_level"),
-  provinceCode:       varchar("province_code", { length: 10 }),
-  lastSeenAt:         timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  userId:              text("user_id").primaryKey().references(() => authUsers.id, { onDelete: "cascade" }),
+  // Name claims
+  givenName:           varchar("given_name", { length: 100 }),
+  familyName:          varchar("family_name", { length: 100 }),
+  preferredUsername:   varchar("preferred_username", { length: 255 }),
+  // Contact claims
+  email:               varchar("email", { length: 255 }),
+  phoneNumber:         varchar("phone_number", { length: 20 }),
+  // DGA-specific identity claims
+  dgaUserId:           varchar("dga_user_id", { length: 100 }),   // from user_id scope (≠ OIDC sub)
+  citizenIdEncrypted:  text("citizen_id_encrypted"),              // citizen_id scope — AES-256 in M3
+  citizenIdVerified:   boolean("citizen_id_verified"),            // citizen_id_verified scope
+  ialLevel:            real("ial_level"),                         // ial_level scope
+  // Housekeeping
+  lastSeenAt:          timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── App-specific: DGA personal_token store ──────────────────────────────────
+
+/**
+ * DGA personal_token — short-lived (30 min), issued per sign-in.
+ *
+ * Used to authenticate direct API calls in a way that is:
+ *   - Traceable: every call maps to a real DGA Digital ID user
+ *   - Verifiable: validated against DGA's /connect/userinfo endpoint
+ *   - Separable: future standalone API projects can accept this token
+ *     without needing our session cookie infrastructure
+ *
+ * The token is validated server-side by calling DGA /connect/userinfo with
+ * it as a Bearer token. A valid response proves the token is live and reveals
+ * the user's DGA sub for traceability.
+ */
+export const userPersonalTokens = pgTable("user_personal_tokens", {
+  userId:    text("user_id").primaryKey().references(() => authUsers.id, { onDelete: "cascade" }),
+  token:     text("token").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

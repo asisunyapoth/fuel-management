@@ -8,11 +8,12 @@ import {
   authVerificationTokens,
   userRoles,
   userProfiles,
+  userPersonalTokens,
 } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { hashConsumerSecret } from "@/lib/auth/hashSecret";
 
-const dgaBaseUrl =
+export const dgaBaseUrl =
   process.env.DGA_ENVIRONMENT === "production"
     ? "https://connect.egov.go.th"
     : "https://connect.dga.or.th";
@@ -50,7 +51,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       authorization: {
         url: `${dgaBaseUrl}/connect/authorize`,
         params: {
-          scope: "openid profile email",
+          scope:
+            "openid profile given_name family_name email phone_number " +
+            "user_id citizen_id citizen_id_verified ial_level " +
+            "preferred_username personal_token",
           response_type: "code",
         },
       },
@@ -58,10 +62,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       userinfo: `${dgaBaseUrl}/connect/userinfo`,
       checks: ["state", "nonce"],
       profile(profile) {
+        const name =
+          [profile.given_name, profile.family_name].filter(Boolean).join(" ") ||
+          (profile.preferred_username as string | undefined) ||
+          (profile.sub as string);
         return {
-          id: profile.sub,
-          name: [profile.given_name, profile.family_name].filter(Boolean).join(" ") || profile.preferred_username || profile.sub,
-          email: profile.email ?? null,
+          id: profile.sub as string,
+          name,
+          email: (profile.email as string | undefined) ?? null,
           image: null,
         };
       },
@@ -83,37 +91,62 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
 
-  // ── Events: upsert DGA profile claims on every sign-in ────────────────
+  // ── Events: upsert full DGA profile + personal_token on every sign-in ─
   events: {
-    async signIn({ user, account, profile }) {
+    async signIn({ user, profile }) {
       if (!user.id || !profile) return;
 
-      // Upsert user profile from DGA claims
+      const p = profile as Record<string, unknown>;
+
+      // ── 1. Upsert full profile from DGA userinfo claims ────────────────
       await db
         .insert(userProfiles)
         .values({
-          userId:      user.id,
-          givenName:   (profile.given_name as string) ?? null,
-          familyName:  (profile.family_name as string) ?? null,
-          email:       (profile.email as string) ?? null,
-          phoneNumber: (profile.phone_number as string) ?? null,
-          // citizen_id stored encrypted — for now store raw (encryption to be added in M3)
-          citizenIdEncrypted: (profile.citizen_id as string) ?? null,
-          ialLevel:    profile.ial_level != null ? Number(profile.ial_level) : null,
-          lastSeenAt:  new Date(),
+          userId:             user.id,
+          givenName:          (p.given_name as string) ?? null,
+          familyName:         (p.family_name as string) ?? null,
+          preferredUsername:  (p.preferred_username as string) ?? null,
+          email:              (p.email as string) ?? null,
+          phoneNumber:        (p.phone_number as string) ?? null,
+          dgaUserId:          (p.user_id as string) ?? null,
+          // citizen_id stored as-is for now — AES-256 encryption added in M3
+          citizenIdEncrypted: (p.citizen_id as string) ?? null,
+          citizenIdVerified:  p.citizen_id_verified != null
+                                ? Boolean(p.citizen_id_verified)
+                                : null,
+          ialLevel:           p.ial_level != null ? Number(p.ial_level) : null,
+          lastSeenAt:         new Date(),
         })
         .onConflictDoUpdate({
           target: userProfiles.userId,
           set: {
-            givenName:   (profile.given_name as string) ?? null,
-            familyName:  (profile.family_name as string) ?? null,
-            email:       (profile.email as string) ?? null,
-            phoneNumber: (profile.phone_number as string) ?? null,
-            citizenIdEncrypted: (profile.citizen_id as string) ?? null,
-            ialLevel:    profile.ial_level != null ? Number(profile.ial_level) : null,
-            lastSeenAt:  new Date(),
+            givenName:          (p.given_name as string) ?? null,
+            familyName:         (p.family_name as string) ?? null,
+            preferredUsername:  (p.preferred_username as string) ?? null,
+            email:              (p.email as string) ?? null,
+            phoneNumber:        (p.phone_number as string) ?? null,
+            dgaUserId:          (p.user_id as string) ?? null,
+            citizenIdEncrypted: (p.citizen_id as string) ?? null,
+            citizenIdVerified:  p.citizen_id_verified != null
+                                  ? Boolean(p.citizen_id_verified)
+                                  : null,
+            ialLevel:           p.ial_level != null ? Number(p.ial_level) : null,
+            lastSeenAt:         new Date(),
           },
         });
+
+      // ── 2. Upsert personal_token (30-min TTL from DGA) ─────────────────
+      const personalToken = p.personal_token as string | undefined;
+      if (personalToken) {
+        const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 min
+        await db
+          .insert(userPersonalTokens)
+          .values({ userId: user.id, token: personalToken, expiresAt })
+          .onConflictDoUpdate({
+            target: userPersonalTokens.userId,
+            set: { token: personalToken, expiresAt, updatedAt: new Date() },
+          });
+      }
     },
   },
 });
