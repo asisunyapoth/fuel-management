@@ -50,9 +50,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       authorization: {
         url: `${dgaBaseUrl}/connect/authorize`,
         params: {
-          scope:
-            "openid profile given_name family_name email phone_number " +
-            "user_id citizen_id citizen_id_verified ial_level preferred_username",
+          scope: "openid profile email",
           response_type: "code",
         },
       },
