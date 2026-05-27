@@ -5,7 +5,7 @@ const PUBLIC_PREFIXES = [
   "/sign-in",
   "/api/auth",      // Auth.js internal routes (callback, signout, etc.)
   "/open-data",
-  "/api/v1/master",
+  "/api/v1/",       // v1 REST API — auth handled per-route (API key or public)
 ];
 
 function isPublic(pathname: string): boolean {
