@@ -13,7 +13,7 @@ import crypto from "crypto";
  */
 export function hashConsumerSecret(secret: string, rounds = 7): string {
   let result = secret;
-  /*
+
   for (let i = 0; i < rounds; i++) {
     result = crypto
       .createHash("md5")
@@ -21,7 +21,6 @@ export function hashConsumerSecret(secret: string, rounds = 7): string {
       .digest("hex")
       .toLowerCase();
   }
-  */
 
   return result;
 }
