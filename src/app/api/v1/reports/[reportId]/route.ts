@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   reports,
@@ -8,20 +8,19 @@ import {
   stations,
   reportingPeriods,
 } from "@/db/schema";
-import { requireApiKey } from "@/lib/auth/requireApiKey";
-import { withIdempotency } from "@/lib/api/idempotency";
-import { upsertLines } from "../route";
+import { requirePersonalToken } from "@/lib/auth/secureRoute";
+import { checkStationAccess, upsertLines } from "../route";
 import { z } from "zod";
 
 /* ── Helpers ──────────────────────────────────────────────────── */
 
 async function verifyReportAccess(
-  reportId: number,
-  licenseNo: string | null
+  userId: string,
+  reportId: number
 ): Promise<{
-  reportId: number;
-  status: string;
-  stationId: number;
+  reportId:     number;
+  status:       string;
+  stationId:    number;
   periodDueDate: string | null;
 } | null> {
   const [row] = await db
@@ -29,19 +28,18 @@ async function verifyReportAccess(
       reportId:      reports.reportId,
       status:        reports.status,
       stationId:     reports.stationId,
-      dealerLicense: stations.dealerLicenseNo,
       periodDueDate: reportingPeriods.dueDate,
     })
     .from(reports)
-    .innerJoin(stations, eq(reports.stationId, stations.stationId))
     .leftJoin(reportingPeriods, eq(reports.periodId, reportingPeriods.periodId))
     .where(eq(reports.reportId, reportId))
     .limit(1);
 
   if (!row) return null;
 
-  // Scope check: key must match or be unscoped
-  if (licenseNo && row.dealerLicense !== licenseNo) return null;
+  // Check that the calling user can access this station
+  const access = await checkStationAccess(userId, row.stationId);
+  if (!access) return null;
 
   return {
     reportId:     row.reportId,
@@ -56,6 +54,8 @@ async function verifyReportAccess(
 /**
  * Returns full report data including 01-4 and 01-6 lines.
  *
+ * Authentication: Authorization: Bearer <personal_token>
+ *
  * Response 200:
  * {
  *   "reportId": 123,
@@ -64,14 +64,14 @@ async function verifyReportAccess(
  *   "lines016": [...]
  * }
  */
-export const GET = requireApiKey(async (ctx, req: Request) => {
+export const GET = requirePersonalToken(async (ctx, req) => {
   const segments = new URL(req.url).pathname.split("/");
   const reportId = parseInt(segments[segments.length - 1]);
   if (isNaN(reportId)) {
     return NextResponse.json({ error: "Invalid reportId" }, { status: 400 });
   }
 
-  const row = await verifyReportAccess(reportId, ctx.licenseNo);
+  const row = await verifyReportAccess(ctx.userId, reportId);
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const [lines014, lines016] = await Promise.all([
@@ -105,50 +105,45 @@ const putSchema = z.object({
 /**
  * Replace all 01-6 lines for a draft report. Derives and stores 01-4 lines.
  *
- * Authentication: Authorization: Bearer <api_key>
- * Idempotency:    Idempotency-Key: <uuid>  (recommended on retries)
+ * Authentication: Authorization: Bearer <personal_token>
  *
  * Response 200 { success: true }
+ * Response 404               — report not found or user not authorised
  * Response 409               — report already submitted
  * Response 410               — deadline has passed
  * Response 422               — validation error
  */
-export const PUT = requireApiKey(async (ctx, req: Request) => {
+export const PUT = requirePersonalToken(async (ctx, req) => {
   const segments = new URL(req.url).pathname.split("/");
   const reportId = parseInt(segments[segments.length - 1]);
   if (isNaN(reportId)) {
     return NextResponse.json({ error: "Invalid reportId" }, { status: 400 });
   }
 
-  const idemKey  = req.headers.get("idempotency-key");
-  const endpoint = `PUT /api/v1/reports/${reportId}`;
+  const row = await verifyReportAccess(ctx.userId, reportId);
+  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return withIdempotency(idemKey, endpoint, ctx.apiKeyId, async () => {
-    const row = await verifyReportAccess(reportId, ctx.licenseNo);
-    if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (row.status !== "draft") {
+    return NextResponse.json({ error: "Report already submitted" }, { status: 409 });
+  }
 
-    if (row.status !== "draft") {
-      return NextResponse.json({ error: "Report already submitted" }, { status: 409 });
-    }
+  const today = new Date().toISOString().split("T")[0];
+  if (row.periodDueDate && row.periodDueDate < today) {
+    return NextResponse.json(
+      { error: "Deadline has passed", dueDate: row.periodDueDate },
+      { status: 410 }
+    );
+  }
 
-    const today = new Date().toISOString().split("T")[0];
-    if (row.periodDueDate && row.periodDueDate < today) {
-      return NextResponse.json(
-        { error: "Deadline has passed", dueDate: row.periodDueDate },
-        { status: 410 }
-      );
-    }
+  const body = await req.json();
+  const parsed = putSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid payload", details: parsed.error.flatten() },
+      { status: 422 }
+    );
+  }
 
-    const body = await req.json();
-    const parsed = putSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid payload", details: parsed.error.flatten() },
-        { status: 422 }
-      );
-    }
-
-    await upsertLines(reportId, parsed.data.lines);
-    return NextResponse.json({ success: true });
-  });
+  await upsertLines(reportId, parsed.data.lines);
+  return NextResponse.json({ success: true });
 });

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   reports,
@@ -8,7 +8,8 @@ import {
   stations,
   reportingPeriods,
 } from "@/db/schema";
-import { requireApiKey } from "@/lib/auth/requireApiKey";
+import { requirePersonalToken } from "@/lib/auth/secureRoute";
+import { checkStationAccess } from "../../route";
 
 /**
  * POST /api/v1/reports/[reportId]/submit
@@ -16,15 +17,15 @@ import { requireApiKey } from "@/lib/auth/requireApiKey";
  * Finalises a draft report: runs L2 field validation then marks it submitted.
  * Returns warnings from L3 cross-form reconciliation (informational, not blocking).
  *
- * Authentication: Authorization: Bearer <api_key>
+ * Authentication: Authorization: Bearer <personal_token>
  *
  * Response 200 { success: true, warnings: string[] }
- * Response 404               — report not found or outside key's license scope
+ * Response 404               — report not found or user not authorised
  * Response 409               — report already submitted
  * Response 410               — deadline has passed
  * Response 422               — L2 field validation failed
  */
-export const POST = requireApiKey(async (ctx, req) => {
+export const POST = requirePersonalToken(async (ctx, req) => {
   const segments = new URL(req.url).pathname.split("/");
   // URL: /api/v1/reports/[reportId]/submit → segments[-2] is reportId
   const reportId = parseInt(segments[segments.length - 2]);
@@ -37,12 +38,11 @@ export const POST = requireApiKey(async (ctx, req) => {
     .select({
       reportId:      reports.reportId,
       status:        reports.status,
-      dealerLicense: stations.dealerLicenseNo,
+      stationId:     reports.stationId,
       periodMode:    reportingPeriods.mode,
       periodDueDate: reportingPeriods.dueDate,
     })
     .from(reports)
-    .innerJoin(stations, eq(reports.stationId, stations.stationId))
     .leftJoin(reportingPeriods, eq(reports.periodId, reportingPeriods.periodId))
     .where(eq(reports.reportId, reportId))
     .limit(1);
@@ -51,8 +51,9 @@ export const POST = requireApiKey(async (ctx, req) => {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // License scope check
-  if (ctx.licenseNo && reportRow.dealerLicense !== ctx.licenseNo) {
+  // Access check: direct station link OR license link
+  const access = await checkStationAccess(ctx.userId, reportRow.stationId);
+  if (!access) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
